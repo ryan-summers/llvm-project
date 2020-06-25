@@ -18675,3 +18675,44 @@ void ARMTargetLowering::finalizeLowering(MachineFunction &MF) const {
   MF.getFrameInfo().computeMaxCallFrameSize(MF);
   TargetLoweringBase::finalizeLowering(MF);
 }
+
+/// Returns true if stack probing through a function call is requested.
+bool ARMTargetLowering::hasStackProbeSymbol(MachineFunction &MF) const {
+  return !getStackProbeSymbolName(MF).empty();
+}
+
+/// Returns the name of the symbol used to emit stack probes or the empty
+/// string if not applicable.
+StringRef
+ARMTargetLowering::getStackProbeSymbolName(MachineFunction &MF) const {
+  // If the function specifically requests stack probes, emit them.
+  if (MF.getFunction().hasFnAttribute("probe-stack"))
+    return MF.getFunction().getFnAttribute("probe-stack").getValueAsString();
+
+  if (Subtarget->isTargetWindows() &&
+      !MF.getFunction().hasFnAttribute("no-stack-arg-probe"))
+    return "__chkstk";
+
+  // Generally, if we aren't on Windows, the platform ABI does not include
+  // support for stack probes, so don't emit them.
+  return "";
+}
+
+unsigned
+ARMTargetLowering::getStackProbeSize(MachineFunction &MF) const {
+  // The default stack probe size is 4096 if the function has no stackprobesize
+  // attribute.
+  const MachineFrameInfo &MFI = MF.getFrameInfo();
+
+  unsigned StackProbeSize = 4096;
+
+  if (Subtarget->isTargetWindows())
+      StackProbeSize = (MFI.getStackProtectorIndex() > 0)? 4080 : 4096;
+
+  const Function &Fn = MF.getFunction();
+  if (Fn.hasFnAttribute("stack-probe-size"))
+    Fn.getFnAttribute("stack-probe-size")
+        .getValueAsString()
+        .getAsInteger(0, StackProbeSize);
+  return StackProbeSize;
+}
