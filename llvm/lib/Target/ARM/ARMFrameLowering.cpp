@@ -579,18 +579,6 @@ static int sizeOfSPAdjustment(const MachineInstr &MI) {
   return count;
 }
 
-static bool WindowsRequiresStackProbe(const MachineFunction &MF,
-                                      size_t StackSizeInBytes) {
-  const MachineFrameInfo &MFI = MF.getFrameInfo();
-  const Function &F = MF.getFunction();
-  unsigned StackProbeSize = (MFI.getStackProtectorIndex() > 0) ? 4080 : 4096;
-
-  StackProbeSize =
-      F.getFnAttributeAsParsedInteger("stack-probe-size", StackProbeSize);
-  return (StackSizeInBytes >= StackProbeSize) &&
-         !F.hasFnAttribute("no-stack-arg-probe");
-}
-
 namespace {
 
 struct StackAdjustingInsts {
@@ -749,6 +737,10 @@ void ARMFrameLowering::emitPrologue(MachineFunction &MF,
   int FPCXTSaveSize = 0;
   bool NeedsWinCFI = needsWinCFI(MF);
 
+  const bool EmitStackProbeCall =
+      STI.getTargetLowering()->hasStackProbeSymbol(MF);
+  unsigned StackProbeSize = STI.getTargetLowering()->getStackProbeSize(MF);
+
   // Debug location must be unknown since the first debug location is used
   // to determine the end of the prologue.
   DebugLoc dl;
@@ -769,8 +761,14 @@ void ARMFrameLowering::emitPrologue(MachineFunction &MF,
   StackAdjustingInsts DefCFAOffsetCandidates;
   bool HasFP = hasFP(MF);
 
-  if (!AFI->hasStackFrame() &&
-      (!STI.isTargetWindows() || !WindowsRequiresStackProbe(MF, NumBytes))) {
+  // Allocate the vararg register save area.
+  if (ArgRegsSaveSize) {
+    emitSPUpdate(isARM, MBB, MBBI, dl, TII, -ArgRegsSaveSize,
+                 MachineInstr::FrameSetup);
+    DefCFAOffsetCandidates.addInst(std::prev(MBBI), ArgRegsSaveSize, true);
+  }
+
+  if (!AFI->hasStackFrame() && !(EmitStackProbeCall && NumBytes >= StackProbeSize)) {
     if (NumBytes != 0) {
       emitSPUpdate(isARM, MBB, MBBI, dl, TII, -NumBytes,
                    MachineInstr::FrameSetup);
@@ -972,7 +970,7 @@ void ARMFrameLowering::emitPrologue(MachineFunction &MF,
   if (STI.splitFramePointerPush(MF) && HasFP)
     NeedsWinCFIStackAlloc = false;
 
-  if (STI.isTargetWindows() && WindowsRequiresStackProbe(MF, NumBytes)) {
+  if (NumBytes >= StackProbeSize && EmitStackProbeCall) {
     uint32_t NumWords = NumBytes >> 2;
 
     if (NumWords < 65536) {
@@ -995,6 +993,8 @@ void ARMFrameLowering::emitPrologue(MachineFunction &MF,
           .add(predOps(ARMCC::AL));
     }
 
+    StringRef Symbol = STI.getTargetLowering()->getStackProbeSymbolName(MF);
+
     switch (TM.getCodeModel()) {
     case CodeModel::Tiny:
       llvm_unreachable("Tiny code model not available on ARM.");
@@ -1003,13 +1003,13 @@ void ARMFrameLowering::emitPrologue(MachineFunction &MF,
     case CodeModel::Kernel:
       BuildMI(MBB, MBBI, dl, TII.get(ARM::tBL))
           .add(predOps(ARMCC::AL))
-          .addExternalSymbol("__chkstk")
+          .addExternalSymbol(MF.createExternalSymbolName(Symbol))
           .addReg(ARM::R4, RegState::Implicit)
           .setMIFlags(MachineInstr::FrameSetup);
       break;
     case CodeModel::Large:
       BuildMI(MBB, MBBI, dl, TII.get(ARM::t2MOVi32imm), ARM::R12)
-        .addExternalSymbol("__chkstk")
+        .addExternalSymbol(MF.createExternalSymbolName(Symbol))
         .setMIFlags(MachineInstr::FrameSetup);
 
       BuildMI(MBB, MBBI, dl, TII.get(ARM::tBLXr))
@@ -2286,6 +2286,10 @@ void ARMFrameLowering::determineCalleeSaves(MachineFunction &MF,
   (void)TRI;  // Silence unused warning in non-assert builds.
   Register FramePtr = RegInfo->getFrameRegister(MF);
 
+  const bool EmitStackProbeCall =
+      STI.getTargetLowering()->hasStackProbeSymbol(MF);
+  unsigned StackProbeSize = STI.getTargetLowering()->getStackProbeSize(MF);
+
   // Spill R4 if Thumb2 function requires stack realignment - it will be used as
   // scratch register. Also spill R4 if Thumb2 function has varsized objects,
   // since it's not always possible to restore sp from fp in a single
@@ -2300,8 +2304,7 @@ void ARMFrameLowering::determineCalleeSaves(MachineFunction &MF,
   // This estimate should be a safe, conservative estimate. The actual
   // stack probe is enabled based on the size of the local objects;
   // this estimate also includes the varargs store size.
-  if (STI.isTargetWindows() &&
-      WindowsRequiresStackProbe(MF, MFI.estimateStackSize(MF))) {
+  if (MFI.estimateStackSize(MF) >= StackProbeSize && EmitStackProbeCall) {
     SavedRegs.set(ARM::R4);
     SavedRegs.set(ARM::LR);
   }
