@@ -761,13 +761,6 @@ void ARMFrameLowering::emitPrologue(MachineFunction &MF,
   StackAdjustingInsts DefCFAOffsetCandidates;
   bool HasFP = hasFP(MF);
 
-  // Allocate the vararg register save area.
-  if (ArgRegsSaveSize) {
-    emitSPUpdate(isARM, MBB, MBBI, dl, TII, -ArgRegsSaveSize,
-                 MachineInstr::FrameSetup);
-    DefCFAOffsetCandidates.addInst(std::prev(MBBI), ArgRegsSaveSize, true);
-  }
-
   if (!AFI->hasStackFrame() && !(EmitStackProbeCall && NumBytes >= StackProbeSize)) {
     if (NumBytes != 0) {
       emitSPUpdate(isARM, MBB, MBBI, dl, TII, -NumBytes,
