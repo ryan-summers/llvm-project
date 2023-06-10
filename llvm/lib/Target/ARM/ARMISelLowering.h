@@ -696,9 +696,9 @@ class VectorType;
       return true;
     }
 
-    bool hasStackProbeSymbol(MachineFunction &MF) const override;
-    StringRef getStackProbeSymbolName(MachineFunction &MF) const override;
-    unsigned getStackProbeSize(MachineFunction &MF) const;
+    bool hasStackProbeSymbol(const MachineFunction &MF) const override;
+    StringRef getStackProbeSymbolName(const MachineFunction &MF) const override;
+    unsigned getStackProbeSize(const MachineFunction &MF) const;
 
     bool hasStandaloneRem(EVT VT) const override {
       return HasStandaloneRem;

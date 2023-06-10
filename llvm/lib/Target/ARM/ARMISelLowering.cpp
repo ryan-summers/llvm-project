@@ -22131,14 +22131,14 @@ Value *ARMTargetLowering::createComplexDeinterleavingIR(
 }
 
 /// Returns true if stack probing through a function call is requested.
-bool ARMTargetLowering::hasStackProbeSymbol(MachineFunction &MF) const {
+bool ARMTargetLowering::hasStackProbeSymbol(const MachineFunction &MF) const {
   return !getStackProbeSymbolName(MF).empty();
 }
 
 /// Returns the name of the symbol used to emit stack probes or the empty
 /// string if not applicable.
 StringRef
-ARMTargetLowering::getStackProbeSymbolName(MachineFunction &MF) const {
+ARMTargetLowering::getStackProbeSymbolName(const MachineFunction &MF) const {
   // If the function specifically requests stack probes, emit them.
   if (MF.getFunction().hasFnAttribute("probe-stack"))
     return MF.getFunction().getFnAttribute("probe-stack").getValueAsString();
@@ -22153,7 +22153,7 @@ ARMTargetLowering::getStackProbeSymbolName(MachineFunction &MF) const {
 }
 
 unsigned
-ARMTargetLowering::getStackProbeSize(MachineFunction &MF) const {
+ARMTargetLowering::getStackProbeSize(const MachineFunction &MF) const {
   // The default stack probe size is 4096 if the function has no stackprobesize
   // attribute.
   const MachineFrameInfo &MFI = MF.getFrameInfo();
